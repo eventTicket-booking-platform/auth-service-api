@@ -1,5 +1,9 @@
 package com.ec7205.event_hub.auth_service_api.service.impl;
 
+import com.ec7205.event_hub.auth_service_api.client.NotificationServiceClient;
+import com.ec7205.event_hub.auth_service_api.client.dto.EmailVerificationOtpNotificationRequest;
+import com.ec7205.event_hub.auth_service_api.client.dto.HostPasswordNotificationRequest;
+import com.ec7205.event_hub.auth_service_api.client.dto.PasswordResetOtpNotificationRequest;
 import com.ec7205.event_hub.auth_service_api.config.KeycloakSecurityUtil;
 import com.ec7205.event_hub.auth_service_api.dto.request.RequestLoginDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.PasswordRequestDto;
@@ -64,7 +68,8 @@ public class SystemUserServiceImpl implements SystemUserService {
     private final KeycloakSecurityUtil keyClockUtil; // Utility to get Keycloak admin client instance
     private final OtpRepo otpRepo; // Repository for managing OTP table
     private final OtpGenerator otpGenerator; // Utility for generating OTP codes
-    private final EmailService emailService; // Service for sending emails
+//    private final EmailService emailService; // Service for sending emails
+    private final NotificationServiceClient  notificationServiceClient;
     private final FileDataExtractor fileDataExtractor;
 
     @Override
@@ -179,7 +184,14 @@ public class SystemUserServiceImpl implements SystemUserService {
             otpRepo.save(createdOtp);
 
             // --- 10. Send verification email with OTP ---
-            emailService.sendUserSignupVerificationCode(dto.getEmail(), "Verify your email", createdOtp.getCode(), dto.getFirstName());
+            notificationServiceClient.sendEmailVerificationOtp(EmailVerificationOtpNotificationRequest.builder()
+                    .userId(userId)
+                    .email(dto.getEmail())
+//                    .message("Verify your email")
+                    .name(dto.getFirstName())
+                    .otp(createdOtp.getCode())
+                    .build()
+            );
         }
     }
 
@@ -277,7 +289,11 @@ public class SystemUserServiceImpl implements SystemUserService {
                 SystemUser savedUser = systemUserRepo.save(sUser);
 
                 // Send password email to host users
-                emailService.sendHostPassword(dto.getEmail(), "access system by using the above password", dto.getPassword(), dto.getFirstName());
+                notificationServiceClient.sendHostPassword(HostPasswordNotificationRequest.builder()
+                                .email(dto.getEmail())
+                                .firstName(dto.getFirstName())
+                                .password(dto.getPassword())
+                        .build());
             }
         }
     }
@@ -298,7 +314,14 @@ public class SystemUserServiceImpl implements SystemUserService {
             Otp selectedOtpObj = systemUser.getOtp();
 
             String code = otpGenerator.generateOtp(5);
-            emailService.sendUserSignupVerificationCode(systemUser.getEmail(), "Verify your email", code, systemUser.getFirstName());
+            notificationServiceClient.sendEmailVerificationOtp(EmailVerificationOtpNotificationRequest.builder()
+                    .userId(systemUser.getUserId())
+                    .email(systemUser.getEmail())
+//                    .message("Verify your email")
+                    .name(systemUser.getFirstName())
+                    .otp(code)
+                    .build()
+            );
             selectedOtpObj.setAttempts(0);
             selectedOtpObj.setCode(code);
             selectedOtpObj.setIsVerified(false);
@@ -333,8 +356,14 @@ public class SystemUserServiceImpl implements SystemUserService {
             selectedOtpObj.setIsVerified(false);
             selectedOtpObj.setUpdatedAt(new Date().toInstant());
             otpRepo.save(selectedOtpObj);
-            emailService.sendUserSignupVerificationCode(systemUser.getEmail(), "Verify your email", code, systemUser.getFirstName());
-
+            notificationServiceClient.sendPasswordResetOtp(PasswordResetOtpNotificationRequest.builder()
+                    .userId(systemUser.getUserId())
+                    .email(systemUser.getEmail())
+//                    .message("Verify your email")
+                    .name(systemUser.getFirstName())
+                    .otp(code)
+                    .build()
+            );
 
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage());

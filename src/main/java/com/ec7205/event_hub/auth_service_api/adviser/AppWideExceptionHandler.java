@@ -6,6 +6,7 @@ import com.ec7205.event_hub.auth_service_api.exceptions.DuplicateEntryException;
 import com.ec7205.event_hub.auth_service_api.exceptions.EntryNotFoundException;
 import com.ec7205.event_hub.auth_service_api.exceptions.UnauthorizedException;
 import com.ec7205.event_hub.auth_service_api.utils.StandardResponseDto;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -39,6 +40,22 @@ public class AppWideExceptionHandler {
         return new ResponseEntity<StandardResponseDto>(
                 new StandardResponseDto(401,ex.getMessage(),ex),
                 HttpStatus.UNAUTHORIZED
+        );
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<StandardResponseDto> handleDataIntegrityViolationException(DataIntegrityViolationException ex) {
+        return new ResponseEntity<StandardResponseDto>(
+                new StandardResponseDto(500, "Database constraint violation", ex),
+                HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<StandardResponseDto> handleIllegalStateException(IllegalStateException ex) {
+        return new ResponseEntity<StandardResponseDto>(
+                new StandardResponseDto(500, ex.getMessage(), ex),
+                HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
 

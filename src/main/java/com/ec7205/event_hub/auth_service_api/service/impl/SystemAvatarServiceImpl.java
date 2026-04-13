@@ -1,6 +1,5 @@
 package com.ec7205.event_hub.auth_service_api.service.impl;
 
-import com.amazonaws.services.accessanalyzer.model.InternalServerException;
 import com.ec7205.event_hub.auth_service_api.entity.SystemAvatar;
 import com.ec7205.event_hub.auth_service_api.entity.SystemUser;
 import com.ec7205.event_hub.auth_service_api.exceptions.EntryNotFoundException;
@@ -12,6 +11,7 @@ import com.ec7205.event_hub.auth_service_api.utils.CommonFileSavedBinaryDataDto;
 import com.ec7205.event_hub.auth_service_api.utils.FileDataExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,8 +48,7 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
                     // Delete the existing avatar resource directory
                     fileService.deleteResource(bucketName, "avatar/" + selectedUser.get().getUserId() + "/resource/",fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
                 } catch (Exception e) {
-                    // Handle deletion failure if needed
-                    throw new InternalServerException("Failed to delete existing avatar resource directory");
+                    throw new IllegalStateException("Failed to delete existing avatar resource directory", e);
                 }
 
                 resource = fileService.createResource(file, "avatar/" + selectedUser.get().getUserId() + "/resource/", bucketName);
@@ -62,14 +61,13 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
 
                 systemUserAvatarRepo.save(selectedAvatar.get());
 
+            } catch (DataIntegrityViolationException e) {
+                cleanupCreatedResource(resource);
+                throw new IllegalStateException("Failed to save avatar metadata. Check the system_avatar column types.", e);
             } catch (Exception e) {
-                assert resource != null;
-                fileService.deleteResource(bucketName,
-                        resource.getDirectory(), fileDataExtractor.extractActualFileName(
-                                new InputStreamReader(
-                                        resource.getFileName().getBinaryStream())));
+                cleanupCreatedResource(resource);
                 fileService.deleteResource(bucketName, "avatar/" + selectedUser.get().getUserId() + "/resource/",fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
-                throw new InternalServerException("Something went wrong");
+                throw new IllegalStateException("Failed to update avatar", e);
             }
         } else {
             // save
@@ -84,15 +82,29 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
                         .resourceUrl(fileDataExtractor.blobToByteArray(resource.getResourceUrl()))
                         .systemUser(selectedUser.get()).build();
                 systemUserAvatarRepo.save(buildAvatar);
+            } catch (DataIntegrityViolationException e) {
+                cleanupCreatedResource(resource);
+                throw new IllegalStateException("Failed to save avatar metadata. Check the system_avatar column types.", e);
             } catch (Exception e) {
-                System.out.println(e);
-                assert resource != null;
-                fileService.deleteResource(bucketName,
-                        resource.getDirectory(), fileDataExtractor.extractActualFileName(
-                                new InputStreamReader(
-                                        resource.getFileName().getBinaryStream())));
-                throw new InternalServerException("Something went wrong");
+                cleanupCreatedResource(resource);
+                throw new IllegalStateException("Failed to create avatar", e);
             }
+        }
+    }
+
+    private void cleanupCreatedResource(CommonFileSavedBinaryDataDto resource) {
+        if (resource == null) {
+            return;
+        }
+
+        try {
+            fileService.deleteResource(
+                    bucketName,
+                    resource.getDirectory(),
+                    fileDataExtractor.extractActualFileName(
+                            new InputStreamReader(resource.getFileName().getBinaryStream()))
+            );
+        } catch (Exception ignored) {
         }
     }
 }

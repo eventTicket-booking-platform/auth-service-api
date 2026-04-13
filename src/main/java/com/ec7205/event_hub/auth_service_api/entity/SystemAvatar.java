@@ -19,19 +19,19 @@ public class SystemAvatar {
     private String propertyId;
 
     @Lob
-    @Column(name = "directory", nullable = false)
+    @Column(name = "directory", nullable = false, columnDefinition = "LONGBLOB")
     private byte[] directory;
 
     @Lob
-    @Column(name = "file_name", nullable = false)
+    @Column(name = "file_name", nullable = false, columnDefinition = "LONGBLOB")
     private byte[] fileName;
 
     @Lob
-    @Column(name = "resource_url", nullable = false)
+    @Column(name = "resource_url", nullable = false, columnDefinition = "LONGBLOB")
     private byte[] resourceUrl;
 
     @Lob
-    @Column(name = "hash", nullable = false)
+    @Column(name = "hash", nullable = false, columnDefinition = "LONGBLOB")
     private byte[] hash;
 
     @Temporal(TemporalType.TIMESTAMP)
