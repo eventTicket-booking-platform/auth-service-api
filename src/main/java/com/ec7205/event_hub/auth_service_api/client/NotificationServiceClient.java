@@ -8,7 +8,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "notification-service-api")
+@FeignClient(name = "notification-service-api", url = "http://localhost:9094")
 public interface NotificationServiceClient {
 
     @PostMapping("/notification-service/api/v1/internal/notifications/email-verification-otp")

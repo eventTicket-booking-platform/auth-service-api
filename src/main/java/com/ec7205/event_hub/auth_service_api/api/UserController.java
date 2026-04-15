@@ -103,7 +103,7 @@ public class UserController {
 
     //create this api to get the details of the login user
     @GetMapping("/get-user-details")
-    @PreAuthorize("hasAnyRole('user','admin')")
+    @PreAuthorize("hasAnyRole('user','admin','host')")
     public ResponseEntity<StandardResponseDto> getUserDetails(@RequestHeader("Authorization") String tokenHeader) {
         String token = tokenHeader.replace("Bearer ", "");
         String email = jwtService.getEmail(token);
