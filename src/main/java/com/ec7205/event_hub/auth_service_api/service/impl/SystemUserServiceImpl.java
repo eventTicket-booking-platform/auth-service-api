@@ -10,6 +10,7 @@ import com.ec7205.event_hub.auth_service_api.dto.request.PasswordRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.SystemUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.UpdateUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.response.ResponseUserDetailsDto;
+import com.ec7205.event_hub.auth_service_api.dto.response.pagination.UserDetailsPaginateResponseDto;
 import com.ec7205.event_hub.auth_service_api.entity.Otp;
 import com.ec7205.event_hub.auth_service_api.entity.SystemAvatar;
 import com.ec7205.event_hub.auth_service_api.entity.SystemUser;
@@ -37,6 +38,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -50,6 +53,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class SystemUserServiceImpl implements SystemUserService {
+    private static final List<String> BUSINESS_ROLES = List.of("ADMIN", "HOST", "USER");
 
     @Value("${keycloak.config.realm}")
     private String realm; // The Keycloak realm name (from application properties)
@@ -514,12 +518,17 @@ public class SystemUserServiceImpl implements SystemUserService {
         if (byEmail.isEmpty()) {
             throw new EntryNotFoundException("User was not found!");
         }
-        SystemAvatar systemUserAvatar = byEmail.get().getSystemAvatar();
-        return ResponseUserDetailsDto.builder()
-                .email(byEmail.get().getEmail())
-                .firstName(byEmail.get().getFirstName())
-                .lastName(byEmail.get().getLastName())
-                .resourceUrl(systemUserAvatar != null ? fileDataExtractor.byteArrayToString(systemUserAvatar.getResourceUrl()) : null)
+        return mapToUserDetailsResponse(byEmail.get());
+    }
+
+    @Override
+    public UserDetailsPaginateResponseDto getAllUsers(Pageable pageable) {
+        Page<ResponseUserDetailsDto> userPage = systemUserRepo.findAll(pageable)
+                .map(this::mapToUserDetailsResponse);
+
+        return UserDetailsPaginateResponseDto.builder()
+                .dataList(userPage.getContent())
+                .dataCount(userPage.getTotalElements())
                 .build();
     }
 
@@ -533,5 +542,42 @@ public class SystemUserServiceImpl implements SystemUserService {
         byEmail.get().setLastName(updateUserRequestDto.getLastName());
 
         systemUserRepo.save(byEmail.get());
+    }
+
+    private ResponseUserDetailsDto mapToUserDetailsResponse(SystemUser systemUser) {
+        SystemAvatar systemUserAvatar = systemUser.getSystemAvatar();
+        return ResponseUserDetailsDto.builder()
+                .email(systemUser.getEmail())
+                .firstName(systemUser.getFirstName())
+                .lastName(systemUser.getLastName())
+                .role(resolveUserRole(systemUser))
+                .resourceUrl(systemUserAvatar != null ? fileDataExtractor.byteArrayToString(systemUserAvatar.getResourceUrl()) : null)
+                .build();
+    }
+
+    private String resolveUserRole(SystemUser systemUser) {
+        if (systemUser.getKeycloakId() == null || systemUser.getKeycloakId().isBlank()) {
+            return "UNKNOWN";
+        }
+
+        try {
+            List<RoleRepresentation> roles = keyClockUtil.getKeycloakInstance()
+                    .realm(realm)
+                    .users()
+                    .get(systemUser.getKeycloakId())
+                    .roles()
+                    .realmLevel()
+                    .listAll();
+
+            return roles.stream()
+                    .map(RoleRepresentation::getName)
+                    .filter(Objects::nonNull)
+                    .map(String::toUpperCase)
+                    .filter(BUSINESS_ROLES::contains)
+                    .findFirst()
+                    .orElse("UNKNOWN");
+        } catch (Exception ex) {
+            return "UNKNOWN";
+        }
     }
 }

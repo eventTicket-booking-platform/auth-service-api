@@ -6,9 +6,12 @@ import com.ec7205.event_hub.auth_service_api.dto.request.RequestLoginDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.SystemUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.UpdateUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.response.ResponseUserDetailsDto;
+import com.ec7205.event_hub.auth_service_api.dto.response.pagination.UserDetailsPaginateResponseDto;
 import com.ec7205.event_hub.auth_service_api.service.SystemUserService;
 import com.ec7205.event_hub.auth_service_api.utils.StandardResponseDto;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -115,8 +118,20 @@ public class UserController {
         );
     }
 
+    @GetMapping("/all")
+    @PreAuthorize("hasAnyRole('admin','host')")
+    public ResponseEntity<StandardResponseDto> getAllUsers(
+            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable
+    ) {
+        UserDetailsPaginateResponseDto users = systemUserService.getAllUsers(pageable);
+
+        return new ResponseEntity<>(
+                new StandardResponseDto(200, "all users!", users), HttpStatus.OK
+        );
+    }
+
     @PutMapping("/update-user-details")
-    @PreAuthorize("hasAnyRole('user','admin')")
+    @PreAuthorize("hasAnyRole('user','admin','host')")
     public ResponseEntity<StandardResponseDto> updateUserDetails(@RequestHeader("Authorization") String tokenHeader,
                                                                  @RequestBody UpdateUserRequestDto updateUserRequestDto) {
         String token = tokenHeader.replace("Bearer ", "");

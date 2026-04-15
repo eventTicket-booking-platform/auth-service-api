@@ -22,7 +22,7 @@ public class SystemAvatarController {
     private final JwtService jwtService;
 
     @PostMapping("/user/manage-avatar")
-    @PreAuthorize("hasAnyRole('user')")
+    @PreAuthorize("hasAnyRole('user','admin','host')")
     public ResponseEntity<StandardResponseDto> manageAvatar(
             @RequestHeader("Authorization") String tokenHeader,
             @RequestParam("avatar") MultipartFile avatar) throws SQLException, JsonProcessingException {
