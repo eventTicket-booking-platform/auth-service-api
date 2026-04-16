@@ -3,6 +3,7 @@ package com.ec7205.event_hub.auth_service_api.api;
 import com.ec7205.event_hub.auth_service_api.config.JwtService;
 import com.ec7205.event_hub.auth_service_api.dto.request.PasswordRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.RequestLoginDto;
+import com.ec7205.event_hub.auth_service_api.dto.request.RequestRefreshTokenDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.SystemUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.UpdateUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.response.ResponseUserDetailsDto;
@@ -104,6 +105,14 @@ public class UserController {
         );
     }
 
+    @PostMapping("/visitors/refresh-token")
+    public ResponseEntity<StandardResponseDto> refreshToken(@RequestBody RequestRefreshTokenDto dto) {
+        return new ResponseEntity<>(
+                new StandardResponseDto(200, "success", systemUserService.refreshAccessToken(dto)),
+                HttpStatus.OK
+        );
+    }
+
     //create this api to get the details of the login user
     @GetMapping("/get-user-details")
     @PreAuthorize("hasAnyRole('user','admin','host')")
@@ -127,6 +136,15 @@ public class UserController {
 
         return new ResponseEntity<>(
                 new StandardResponseDto(200, "all users!", users), HttpStatus.OK
+        );
+    }
+
+    @GetMapping("/resolve-user-id")
+    @PreAuthorize("hasAnyRole('admin','host')")
+    public ResponseEntity<StandardResponseDto> resolveUserIdByEmail(@RequestParam String email) {
+        String userId = systemUserService.resolveUserIdByEmail(email);
+        return new ResponseEntity<>(
+                new StandardResponseDto(200, "user id resolved", userId), HttpStatus.OK
         );
     }
 

@@ -7,6 +7,7 @@ import com.ec7205.event_hub.auth_service_api.client.dto.PasswordResetOtpNotifica
 import com.ec7205.event_hub.auth_service_api.config.KeycloakSecurityUtil;
 import com.ec7205.event_hub.auth_service_api.dto.request.RequestLoginDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.PasswordRequestDto;
+import com.ec7205.event_hub.auth_service_api.dto.request.RequestRefreshTokenDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.SystemUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.request.UpdateUserRequestDto;
 import com.ec7205.event_hub.auth_service_api.dto.response.ResponseUserDetailsDto;
@@ -23,7 +24,6 @@ import com.ec7205.event_hub.auth_service_api.repo.SystemUserRepo;
 import com.ec7205.event_hub.auth_service_api.service.SystemUserService;
 import com.ec7205.event_hub.auth_service_api.utils.FileDataExtractor;
 import com.ec7205.event_hub.auth_service_api.utils.OtpGenerator;
-import com.ec7205.event_hub.auth_service_api.service.EmailService;
 
 
 import jakarta.ws.rs.core.Response;
@@ -513,12 +513,38 @@ public class SystemUserServiceImpl implements SystemUserService {
     }
 
     @Override
+    public Object refreshAccessToken(RequestRefreshTokenDto dto) {
+        if (dto == null || dto.getRefreshToken() == null || dto.getRefreshToken().isBlank()) {
+            throw new BadRequestException("refresh token is required");
+        }
+
+        MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
+        requestBody.add("client_id", clientId);
+        requestBody.add("grant_type", OAuth2Constants.REFRESH_TOKEN);
+        requestBody.add("client_secret", secret);
+        requestBody.add("refresh_token", dto.getRefreshToken());
+
+        RestTemplate restTemplate = new RestTemplate();
+        ResponseEntity<Object> response = restTemplate.postForEntity(keyClockApiUrl, requestBody, Object.class);
+        return response.getBody();
+    }
+
+    @Override
     public ResponseUserDetailsDto getUserDetails(String email) {
         Optional<SystemUser> byEmail = systemUserRepo.findByEmail(email);
         if (byEmail.isEmpty()) {
             throw new EntryNotFoundException("User was not found!");
         }
         return mapToUserDetailsResponse(byEmail.get());
+    }
+
+    @Override
+    public String resolveUserIdByEmail(String email) {
+        Optional<SystemUser> byEmail = systemUserRepo.findByEmail(email);
+        if (byEmail.isEmpty()) {
+            throw new EntryNotFoundException("User was not found!");
+        }
+        return byEmail.get().getUserId();
     }
 
     @Override
@@ -547,6 +573,7 @@ public class SystemUserServiceImpl implements SystemUserService {
     private ResponseUserDetailsDto mapToUserDetailsResponse(SystemUser systemUser) {
         SystemAvatar systemUserAvatar = systemUser.getSystemAvatar();
         return ResponseUserDetailsDto.builder()
+                .userId(systemUser.getUserId())
                 .email(systemUser.getEmail())
                 .firstName(systemUser.getFirstName())
                 .lastName(systemUser.getLastName())
