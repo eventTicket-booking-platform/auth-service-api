@@ -1,6 +1,5 @@
 package com.ec7205.event_hub.auth_service_api.service.impl;
 
-import com.ec7205.event_hub.auth_service_api.client.NotificationServiceClient;
 import com.ec7205.event_hub.auth_service_api.client.dto.EmailVerificationOtpNotificationRequest;
 import com.ec7205.event_hub.auth_service_api.client.dto.HostPasswordNotificationRequest;
 import com.ec7205.event_hub.auth_service_api.client.dto.PasswordResetOtpNotificationRequest;
@@ -22,6 +21,8 @@ import com.ec7205.event_hub.auth_service_api.exceptions.UnauthorizedException;
 import com.ec7205.event_hub.auth_service_api.repo.OtpRepo;
 import com.ec7205.event_hub.auth_service_api.repo.SystemUserRepo;
 import com.ec7205.event_hub.auth_service_api.service.SystemUserService;
+import com.ec7205.event_hub.auth_service_api.messaging.AuthNotificationEventPublisher;
+import com.ec7205.event_hub.auth_service_api.messaging.dto.AuthNotificationEvent;
 import com.ec7205.event_hub.auth_service_api.utils.FileDataExtractor;
 import com.ec7205.event_hub.auth_service_api.utils.OtpGenerator;
 
@@ -73,7 +74,7 @@ public class SystemUserServiceImpl implements SystemUserService {
     private final OtpRepo otpRepo; // Repository for managing OTP table
     private final OtpGenerator otpGenerator; // Utility for generating OTP codes
 //    private final EmailService emailService; // Service for sending emails
-    private final NotificationServiceClient  notificationServiceClient;
+    private final AuthNotificationEventPublisher notificationEventPublisher;
     private final FileDataExtractor fileDataExtractor;
 
     @Override
@@ -188,14 +189,12 @@ public class SystemUserServiceImpl implements SystemUserService {
             otpRepo.save(createdOtp);
 
             // --- 10. Send verification email with OTP ---
-            notificationServiceClient.sendEmailVerificationOtp(EmailVerificationOtpNotificationRequest.builder()
+            publishAuthNotification("EMAIL_VERIFICATION_OTP", EmailVerificationOtpNotificationRequest.builder()
                     .userId(userId)
                     .email(dto.getEmail())
-//                    .message("Verify your email")
                     .name(dto.getFirstName())
                     .otp(createdOtp.getCode())
-                    .build()
-            );
+                    .build());
         }
     }
 
@@ -293,10 +292,10 @@ public class SystemUserServiceImpl implements SystemUserService {
                 SystemUser savedUser = systemUserRepo.save(sUser);
 
                 // Send password email to host users
-                notificationServiceClient.sendHostPassword(HostPasswordNotificationRequest.builder()
-                                .email(dto.getEmail())
-                                .firstName(dto.getFirstName())
-                                .password(dto.getPassword())
+                publishAuthNotification("HOST_PASSWORD", HostPasswordNotificationRequest.builder()
+                        .email(dto.getEmail())
+                        .firstName(dto.getFirstName())
+                        .password(dto.getPassword())
                         .build());
             }
         }
@@ -318,14 +317,12 @@ public class SystemUserServiceImpl implements SystemUserService {
             Otp selectedOtpObj = systemUser.getOtp();
 
             String code = otpGenerator.generateOtp(5);
-            notificationServiceClient.sendEmailVerificationOtp(EmailVerificationOtpNotificationRequest.builder()
+            publishAuthNotification("EMAIL_VERIFICATION_OTP", EmailVerificationOtpNotificationRequest.builder()
                     .userId(systemUser.getUserId())
                     .email(systemUser.getEmail())
-//                    .message("Verify your email")
                     .name(systemUser.getFirstName())
                     .otp(code)
-                    .build()
-            );
+                    .build());
             selectedOtpObj.setAttempts(0);
             selectedOtpObj.setCode(code);
             selectedOtpObj.setIsVerified(false);
@@ -360,14 +357,12 @@ public class SystemUserServiceImpl implements SystemUserService {
             selectedOtpObj.setIsVerified(false);
             selectedOtpObj.setUpdatedAt(new Date().toInstant());
             otpRepo.save(selectedOtpObj);
-            notificationServiceClient.sendPasswordResetOtp(PasswordResetOtpNotificationRequest.builder()
+            publishAuthNotification("PASSWORD_RESET_OTP", PasswordResetOtpNotificationRequest.builder()
                     .userId(systemUser.getUserId())
                     .email(systemUser.getEmail())
-//                    .message("Verify your email")
                     .name(systemUser.getFirstName())
                     .otp(code)
-                    .build()
-            );
+                    .build());
 
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage());
@@ -606,5 +601,31 @@ public class SystemUserServiceImpl implements SystemUserService {
         } catch (Exception ex) {
             return "UNKNOWN";
         }
+    }
+
+    private void publishAuthNotification(String type, Object payload) {
+        Map<String, Object> payloadMap = new LinkedHashMap<>();
+        if (payload instanceof EmailVerificationOtpNotificationRequest request) {
+            payloadMap.put("userId", request.getUserId());
+            payloadMap.put("email", request.getEmail());
+            payloadMap.put("name", request.getName());
+            payloadMap.put("otp", request.getOtp());
+        } else if (payload instanceof PasswordResetOtpNotificationRequest request) {
+            payloadMap.put("userId", request.getUserId());
+            payloadMap.put("email", request.getEmail());
+            payloadMap.put("name", request.getName());
+            payloadMap.put("otp", request.getOtp());
+        } else if (payload instanceof HostPasswordNotificationRequest request) {
+            payloadMap.put("email", request.getEmail());
+            payloadMap.put("password", request.getPassword());
+            payloadMap.put("firstName", request.getFirstName());
+        } else {
+            throw new BadRequestException("Unsupported notification payload");
+        }
+
+        notificationEventPublisher.publish(AuthNotificationEvent.builder()
+                .type(type)
+                .payload(payloadMap)
+                .build());
     }
 }
