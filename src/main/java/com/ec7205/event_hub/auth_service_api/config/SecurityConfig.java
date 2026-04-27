@@ -25,6 +25,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(autherize->{
             autherize
                     .requestMatchers(HttpMethod.POST, "/user-service/api/v1/users/visitors/**").permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/user-service/api/v1/users/visitors/**").permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/users/visitors/**").permitAll()
                     .anyRequest().authenticated();
         });
 
