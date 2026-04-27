@@ -23,21 +23,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # - name: Set up JDK
-      #   uses: actions/setup-java@v4
-      #   with:
-      #     distribution: temurin
-      #     java-version: "17"
-      #
-      # - name: SonarQube Scan
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      #   run: |
-      #     ./mvnw verify sonar:sonar \
-      #       -Dsonar.projectKey=auth-service-api \
-      #       -Dsonar.host.url=${SONAR_HOST_URL} \
-      #       -Dsonar.token=${SONAR_TOKEN}
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: SonarQube Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          ./mvnw verify sonar:sonar \
+            -Dsonar.projectKey=auth-service-api \
+            -Dsonar.host.url=${SONAR_HOST_URL} \
+            -Dsonar.token=${SONAR_TOKEN}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
