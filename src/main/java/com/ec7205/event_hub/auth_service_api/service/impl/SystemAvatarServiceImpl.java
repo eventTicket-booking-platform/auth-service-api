@@ -33,6 +33,9 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
     @Value("${bucketName}")
     private String bucketName;
 
+    @Value("${aws.s3.avatar-directory:avatar}")
+    private String avatarDirectory;
+
     @Override
     public void createSystemUserAvatar(MultipartFile file,String email) throws SQLException {
         CommonFileSavedBinaryDataDto resource = null;
@@ -41,17 +44,18 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
             throw new EntryNotFoundException("User not found.");
         }
         Optional<SystemAvatar> selectedAvatar = systemUserAvatarRepo.findByUserPropertyId(selectedUser.get().getUserId());
+        String avatarResourceDirectory = buildAvatarResourceDirectory(selectedUser.get().getUserId());
         if (selectedAvatar.isPresent()) {
             try {
                 try {
 
                     // Delete the existing avatar resource directory
-                    fileService.deleteResource(bucketName, "avatar/" + selectedUser.get().getUserId() + "/resource/",fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
+                    fileService.deleteResource(bucketName, avatarResourceDirectory,fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
                 } catch (Exception e) {
                     throw new IllegalStateException("Failed to delete existing avatar resource directory", e);
                 }
 
-                resource = fileService.createResource(file, "avatar/" + selectedUser.get().getUserId() + "/resource/", bucketName);
+                resource = fileService.createResource(file, avatarResourceDirectory, bucketName);
 
                 selectedAvatar.get().setCreatedDate(new Date());
                 selectedAvatar.get().setDirectory(resource.getDirectory().getBytes());
@@ -66,13 +70,13 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
                 throw new IllegalStateException("Failed to save avatar metadata. Check the system_avatar column types.", e);
             } catch (Exception e) {
                 cleanupCreatedResource(resource);
-                fileService.deleteResource(bucketName, "avatar/" + selectedUser.get().getUserId() + "/resource/",fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
+                fileService.deleteResource(bucketName, avatarResourceDirectory,fileDataExtractor.byteArrayToString(selectedAvatar.get().getFileName()));
                 throw new IllegalStateException("Failed to update avatar", e);
             }
         } else {
             // save
             try {
-                resource = fileService.createResource(file, "avatar/" + selectedUser.get().getUserId() + "/resource/", bucketName);
+                resource = fileService.createResource(file, avatarResourceDirectory, bucketName);
                 SystemAvatar buildAvatar = SystemAvatar.builder()
                         .propertyId(UUID.randomUUID().toString())
                         .createdDate(new Date())
@@ -106,5 +110,13 @@ public class SystemAvatarServiceImpl implements SystemAvatarService {
             );
         } catch (Exception ignored) {
         }
+    }
+
+    private String buildAvatarResourceDirectory(String userId) {
+        return normalizeDirectory(avatarDirectory) + "/" + userId + "/resource/";
+    }
+
+    private String normalizeDirectory(String directory) {
+        return directory.replaceAll("^/+", "").replaceAll("/+$", "");
     }
 }

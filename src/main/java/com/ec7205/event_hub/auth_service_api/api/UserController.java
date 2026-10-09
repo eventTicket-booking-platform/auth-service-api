@@ -115,7 +115,7 @@ public class UserController {
 
     //create this api to get the details of the login user
     @GetMapping("/get-user-details")
-    @PreAuthorize("hasAnyRole('user','admin','host')")
+    @PreAuthorize("hasAnyRole('user','customer','admin','host')")
     public ResponseEntity<StandardResponseDto> getUserDetails(@RequestHeader("Authorization") String tokenHeader) {
         String token = tokenHeader.replace("Bearer ", "");
         String email = jwtService.getEmail(token);
@@ -128,7 +128,7 @@ public class UserController {
     }
 
     @GetMapping("/all")
-    @PreAuthorize("hasAnyRole('admin','host')")
+    @PreAuthorize("hasAuthority('admin')")
     public ResponseEntity<StandardResponseDto> getAllUsers(
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable
     ) {
@@ -140,7 +140,7 @@ public class UserController {
     }
 
     @GetMapping("/resolve-user-id")
-    @PreAuthorize("hasAnyRole('admin','host')")
+    @PreAuthorize("hasAuthority('admin')")
     public ResponseEntity<StandardResponseDto> resolveUserIdByEmail(@RequestParam String email) {
         String userId = systemUserService.resolveUserIdByEmail(email);
         return new ResponseEntity<>(
@@ -149,7 +149,7 @@ public class UserController {
     }
 
     @PutMapping("/update-user-details")
-    @PreAuthorize("hasAnyRole('user','admin','host')")
+    @PreAuthorize("hasAnyRole('user','customer','admin','host')")
     public ResponseEntity<StandardResponseDto> updateUserDetails(@RequestHeader("Authorization") String tokenHeader,
                                                                  @RequestBody UpdateUserRequestDto updateUserRequestDto) {
         String token = tokenHeader.replace("Bearer ", "");

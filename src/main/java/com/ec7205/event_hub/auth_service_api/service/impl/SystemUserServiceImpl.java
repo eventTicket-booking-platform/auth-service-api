@@ -29,6 +29,8 @@ import com.ec7205.event_hub.auth_service_api.utils.OtpGenerator;
 
 import jakarta.ws.rs.core.Response;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
@@ -54,6 +56,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class SystemUserServiceImpl implements SystemUserService {
+    private static final Logger logger = LoggerFactory.getLogger(SystemUserServiceImpl.class);
     private static final List<String> BUSINESS_ROLES = List.of("ADMIN", "HOST", "USER");
 
     @Value("${keycloak.config.realm}")
@@ -67,6 +70,9 @@ public class SystemUserServiceImpl implements SystemUserService {
 
     @Value("${keycloak.config.secret}")
     private String secret;
+
+    @Value("${eventhub.auth.seed-hosts.publish-notifications:false}")
+    private boolean publishSeedHostNotifications;
 
 
     private final SystemUserRepo systemUserRepo; // Repository for managing SystemUser table
@@ -222,10 +228,12 @@ public class SystemUserServiceImpl implements SystemUserService {
     // --- Method to initially add users with role "Host" ---
     @Override
     public void initializeHosts(List<SystemUserRequestDto> users) throws IOException {
+        logger.info("Starting host seed initialization for {} user(s).", users.size());
         for (SystemUserRequestDto dto : users) {
             // If already exists in local DB → skip
             Optional<SystemUser> selectedUser = systemUserRepo.findByEmail(dto.getEmail());
             if (selectedUser.isPresent()) {
+                logger.info("Skipping host seed for {} because it already exists in local DB.", dto.getEmail());
                 continue;
             }
 
@@ -243,6 +251,7 @@ public class SystemUserServiceImpl implements SystemUserService {
                 Optional<SystemUser> selectedSystemUserFromAuthService =
                         systemUserRepo.findByEmail(dto.getEmail());
                 if (selectedSystemUserFromAuthService.isEmpty()) {
+                    logger.info("Deleting stale Keycloak-only host user before reseeding: {}", dto.getEmail());
                     keycloak.realm(realm).users().delete(existingUser.getId());
                 } else {
                     throw new DuplicateEntryException("Email already exists");
@@ -290,15 +299,22 @@ public class SystemUserServiceImpl implements SystemUserService {
                         .build();
 
                 SystemUser savedUser = systemUserRepo.save(sUser);
+                logger.info("Seeded host user {} with local id {} and Keycloak id {}.", dto.getEmail(), savedUser.getUserId(), savedUser.getKeycloakId());
 
-                // Send password email to host users
-                publishAuthNotification("HOST_PASSWORD", HostPasswordNotificationRequest.builder()
-                        .email(dto.getEmail())
-                        .firstName(dto.getFirstName())
-                        .password(dto.getPassword())
-                        .build());
+                if (publishSeedHostNotifications) {
+                    publishAuthNotification("HOST_PASSWORD", HostPasswordNotificationRequest.builder()
+                            .email(dto.getEmail())
+                            .firstName(dto.getFirstName())
+                            .password(dto.getPassword())
+                            .build());
+                } else {
+                    logger.info("Skipped host seed password notification for {} because seed notification publishing is disabled.", dto.getEmail());
+                }
+            } else {
+                logger.warn("Failed to seed host user {}. Keycloak create response status: {}", dto.getEmail(), response.getStatus());
             }
         }
+        logger.info("Host seed initialization finished.");
     }
 
     @Override
