@@ -5,6 +5,9 @@ import com.ec7205.event_hub.auth_service_api.entity.*;
 import com.ec7205.event_hub.auth_service_api.exceptions.*;
 import com.ec7205.event_hub.auth_service_api.repo.HostApplicationRepo;
 import com.ec7205.event_hub.auth_service_api.service.impl.AdminHostApplicationServiceImpl;
+import com.ec7205.event_hub.auth_service_api.messaging.AuthNotificationEventPublisher;
+import com.ec7205.event_hub.auth_service_api.messaging.dto.AuthNotificationEvent;
+import org.mockito.ArgumentCaptor;
 import jakarta.ws.rs.NotFoundException;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -27,7 +30,8 @@ class AdminHostApplicationServiceTest {
     private final HostApplicationRepo applications = mock(HostApplicationRepo.class);
     private final KeycloakSecurityUtil keycloakUtil = mock(KeycloakSecurityUtil.class);
     private final Keycloak keycloak = mock(Keycloak.class, RETURNS_DEEP_STUBS);
-    private final AdminHostApplicationServiceImpl service = new AdminHostApplicationServiceImpl(applications, keycloakUtil);
+    private final AuthNotificationEventPublisher publisher = mock(AuthNotificationEventPublisher.class);
+    private final AdminHostApplicationServiceImpl service = new AdminHostApplicationServiceImpl(applications, keycloakUtil, publisher);
     private HostApplication application;
     private RoleScopeResource roles;
     private RoleRepresentation host;
@@ -197,5 +201,66 @@ class AdminHostApplicationServiceTest {
 
     private void complete(int status) {
         TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCompletion(status));
+    }
+
+    @Test
+    void approvalPublishesOnlyAfterCommitWithMinimalApprovedPayload() {
+        service.approve("application-id", "admin");
+        verifyNoInteractions(publisher);
+        commitCallbacks();
+        ArgumentCaptor<AuthNotificationEvent> event = ArgumentCaptor.forClass(AuthNotificationEvent.class);
+        verify(publisher).publish(event.capture());
+        assertEquals("HOST_APPLICATION_APPROVED", event.getValue().getType());
+        assertEquals(Map.of("email", "applicant@example.test", "firstName", "Applicant", "organizationName", "Org"),
+                event.getValue().getPayload());
+    }
+
+    @Test
+    void rejectionPublishesOnlyAfterCommitWithTrimmedReason() {
+        service.reject("application-id", "admin", "  More information required  ");
+        verifyNoInteractions(publisher);
+        commitCallbacks();
+        ArgumentCaptor<AuthNotificationEvent> event = ArgumentCaptor.forClass(AuthNotificationEvent.class);
+        verify(publisher).publish(event.capture());
+        assertEquals("HOST_APPLICATION_REJECTED", event.getValue().getType());
+        assertEquals(Map.of("email", "applicant@example.test", "firstName", "Applicant", "organizationName", "Org",
+                "rejectionReason", "More information required"), event.getValue().getPayload());
+    }
+
+    @Test
+    void failedApprovalPersistenceDoesNotScheduleSuccessNotification() {
+        when(applications.saveAndFlush(application)).thenThrow(new IllegalStateException("DB failure"));
+        assertThrows(IllegalStateException.class, () -> service.approve("application-id", "admin"));
+        commitCallbacks();
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void failedRejectionPersistenceDoesNotScheduleSuccessNotification() {
+        when(applications.saveAndFlush(application)).thenThrow(new IllegalStateException("DB failure"));
+        assertThrows(IllegalStateException.class, () -> service.reject("application-id", "admin", "Reason"));
+        commitCallbacks();
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void keycloakFailureDoesNotScheduleApprovalNotification() {
+        doThrow(new IllegalStateException("Keycloak failure")).when(roles).add(anyList());
+        assertThrows(IllegalStateException.class, () -> service.approve("application-id", "admin"));
+        commitCallbacks();
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void publisherFailureDoesNotMisreportCommittedReviewAsFailed() {
+        service.reject("application-id", "admin", "Reason");
+        doThrow(new IllegalStateException("RabbitMQ unavailable")).when(publisher).publish(any());
+        assertDoesNotThrow(this::commitCallbacks);
+        assertEquals(HostApplicationStatus.REJECTED, application.getStatus());
+        verify(publisher).publish(any());
+    }
+
+    private void commitCallbacks() {
+        TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
     }
 }

@@ -11,6 +11,8 @@ import com.ec7205.event_hub.auth_service_api.exceptions.EntryNotFoundException;
 import com.ec7205.event_hub.auth_service_api.exceptions.UnauthorizedException;
 import com.ec7205.event_hub.auth_service_api.repo.HostApplicationRepo;
 import com.ec7205.event_hub.auth_service_api.service.AdminHostApplicationService;
+import com.ec7205.event_hub.auth_service_api.messaging.AuthNotificationEventPublisher;
+import com.ec7205.event_hub.auth_service_api.messaging.dto.AuthNotificationEvent;
 import jakarta.ws.rs.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.keycloak.admin.client.resource.RoleScopeResource;
@@ -26,6 +28,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +37,7 @@ public class AdminHostApplicationServiceImpl implements AdminHostApplicationServ
     private static final Logger logger = LoggerFactory.getLogger(AdminHostApplicationServiceImpl.class);
     private final HostApplicationRepo applications;
     private final KeycloakSecurityUtil keycloakUtil;
+    private final AuthNotificationEventPublisher notificationPublisher;
 
     @Value("${keycloak.config.realm}")
     private String realm;
@@ -73,7 +78,9 @@ public class AdminHostApplicationServiceImpl implements AdminHostApplicationServ
         application.setReviewedAt(Instant.now());
         application.setReviewedBy(adminId);
         application.setRejectionReason(null);
-        return AdminHostApplicationResponseDto.from(applications.saveAndFlush(application));
+        HostApplication saved = applications.saveAndFlush(application);
+        publishReviewAfterCommit(saved, "HOST_APPLICATION_APPROVED");
+        return AdminHostApplicationResponseDto.from(saved);
     }
 
     @Override
@@ -89,7 +96,33 @@ public class AdminHostApplicationServiceImpl implements AdminHostApplicationServ
         application.setReviewedAt(Instant.now());
         application.setReviewedBy(adminId);
         application.setRejectionReason(trimmed);
-        return AdminHostApplicationResponseDto.from(applications.saveAndFlush(application));
+        HostApplication saved = applications.saveAndFlush(application);
+        publishReviewAfterCommit(saved, "HOST_APPLICATION_REJECTED");
+        return AdminHostApplicationResponseDto.from(saved);
+    }
+
+    private void publishReviewAfterCommit(HostApplication application, String type) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("email", application.getSystemUser().getEmail());
+        payload.put("firstName", application.getSystemUser().getFirstName());
+        payload.put("organizationName", application.getOrganizationName());
+        if ("HOST_APPLICATION_REJECTED".equals(type)) {
+            payload.put("rejectionReason", application.getRejectionReason());
+        }
+        AuthNotificationEvent event = AuthNotificationEvent.builder().type(type).payload(payload).build();
+        String applicationId = application.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    notificationPublisher.publish(event);
+                } catch (RuntimeException exception) {
+                    // The review is committed; a RabbitMQ failure cannot roll it back.
+                    logger.error("Failed to publish {} for committed host application {}; notification reconciliation required",
+                            type, applicationId, exception);
+                }
+            }
+        });
     }
 
     private HostApplication pendingApplication(String applicationId) {

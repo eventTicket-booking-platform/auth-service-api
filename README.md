@@ -123,7 +123,8 @@ resubmit through Phase 1 before another review.
 Approval verifies the existing Keycloak user and adds only the realm `host`
 role if absent, preserving existing roles and users. HOST authority appears
 on subsequent login/token issuance; already-issued JWTs are unchanged.
-Rejection makes no Keycloak role changes. No review emails are implemented.
+Rejection makes no Keycloak role changes. Review emails are published through
+the Phase 5 auth notification flow below.
 
 Keycloak and MySQL are separate transactions. A newly granted HOST role is
 removed best-effort if the database transaction rolls back, including after
@@ -132,6 +133,28 @@ failure or an unknown database completion is logged for reconciliation.
 A crash, ambiguous Keycloak response, failed cleanup, or concurrent external
 role changes can still leave inconsistent state requiring manual review;
 approval is not globally atomic.
+
+## Host Review Notifications (Phase 5)
+
+After the review database transaction commits, the existing auth publisher sends
+`AuthNotificationEvent` to the configured auth notification queue:
+
+- `HOST_APPLICATION_APPROVED`: `payload` contains `email`, `firstName`, `organizationName`.
+- `HOST_APPLICATION_REJECTED`: the same fields plus `rejectionReason`.
+
+No password, user identity selection or review metadata is included. A failed
+save or rolled-back transaction publishes no success event. Notification Service
+sends approval/dashboard guidance or rejection/re-application guidance.
+
+This is an after-commit publication, not a transactional outbox. A crash between
+commit and publication, or a failed RabbitMQ publish, can leave a committed review
+without an email. Publication failures are logged with application ID and event
+type for reconciliation; they do not reverse or misreport the committed review.
+The existing auth event envelope has no event ID/correlation fields, and the
+publisher does not implement confirmed durable recovery. Duplicate delivery/email
+remains possible; there is no exactly-once guarantee. Booking notification retry,
+DLQ and idempotency behavior is unchanged. The auth consumer's existing failure
+policy is NACK without requeue, not the booking retry pipeline.
 
 ## Runtime Dependencies
 

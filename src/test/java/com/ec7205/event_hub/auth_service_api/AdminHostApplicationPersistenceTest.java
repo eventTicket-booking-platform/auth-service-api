@@ -6,6 +6,7 @@ import com.ec7205.event_hub.auth_service_api.exceptions.DuplicateEntryException;
 import com.ec7205.event_hub.auth_service_api.repo.*;
 import com.ec7205.event_hub.auth_service_api.service.AdminHostApplicationService;
 import com.ec7205.event_hub.auth_service_api.service.impl.AdminHostApplicationServiceImpl;
+import com.ec7205.event_hub.auth_service_api.messaging.AuthNotificationEventPublisher;
 import org.junit.jupiter.api.*;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.RoleScopeResource;
@@ -41,6 +42,7 @@ class AdminHostApplicationPersistenceTest {
     @Autowired AdminHostApplicationService service;
     @Autowired PlatformTransactionManager transactions;
     @MockBean KeycloakSecurityUtil keycloakUtil;
+    @MockBean AuthNotificationEventPublisher publisher;
     private RoleScopeResource roles;
     private RoleRepresentation host;
     private String applicationId;
@@ -76,6 +78,7 @@ class AdminHostApplicationPersistenceTest {
         assertEquals(1, users.count());
         verify(roles).add(List.of(host));
         verify(roles, never()).remove(anyList());
+        verify(publisher).publish(argThat(event -> "HOST_APPLICATION_APPROVED".equals(event.getType())));
     }
 
     @Test
@@ -87,6 +90,7 @@ class AdminHostApplicationPersistenceTest {
         assertEquals(HostApplicationStatus.PENDING, applications.findById(applicationId).orElseThrow().getStatus());
         verify(roles).add(List.of(host));
         verify(roles).remove(List.of(host));
+        verifyNoInteractions(publisher);
     }
 
     @Test
@@ -97,6 +101,18 @@ class AdminHostApplicationPersistenceTest {
         assertEquals("More information required", saved.getRejectionReason());
         assertEquals("admin-subject", saved.getReviewedBy());
         verifyNoInteractions(keycloakUtil);
+        verify(publisher).publish(argThat(event -> "HOST_APPLICATION_REJECTED".equals(event.getType())));
+    }
+
+    @Test
+    void rejectionRollbackAfterFlushLeavesPendingAndDoesNotPublish() {
+        new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+            service.reject(applicationId, "admin", "Reason");
+            verifyNoInteractions(publisher);
+            transaction.setRollbackOnly();
+        });
+        assertEquals(HostApplicationStatus.PENDING, applications.findById(applicationId).orElseThrow().getStatus());
+        verifyNoInteractions(publisher);
     }
 
     @Test
@@ -115,6 +131,7 @@ class AdminHostApplicationPersistenceTest {
             var saved = applications.findById(applicationId).orElseThrow();
             assertEquals(approved ? HostApplicationStatus.APPROVED : HostApplicationStatus.REJECTED, saved.getStatus());
             verify(roles, times(approved ? 1 : 0)).add(List.of(host));
+            verify(publisher, times(1)).publish(any());
         } finally {
             start.countDown();
             executor.shutdownNow();
