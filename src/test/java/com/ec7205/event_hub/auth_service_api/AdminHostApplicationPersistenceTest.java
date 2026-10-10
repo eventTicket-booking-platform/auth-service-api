@@ -6,6 +6,10 @@ import com.ec7205.event_hub.auth_service_api.exceptions.DuplicateEntryException;
 import com.ec7205.event_hub.auth_service_api.repo.*;
 import com.ec7205.event_hub.auth_service_api.service.AdminHostApplicationService;
 import com.ec7205.event_hub.auth_service_api.service.impl.AdminHostApplicationServiceImpl;
+import com.ec7205.event_hub.auth_service_api.service.impl.HostApplicationServiceImpl;
+import com.ec7205.event_hub.auth_service_api.service.HostApplicationService;
+import com.ec7205.event_hub.auth_service_api.dto.request.HostApplicationRequestDto;
+import com.ec7205.event_hub.auth_service_api.exceptions.EntryNotFoundException;
 import com.ec7205.event_hub.auth_service_api.messaging.AuthNotificationEventPublisher;
 import org.junit.jupiter.api.*;
 import org.keycloak.admin.client.Keycloak;
@@ -34,12 +38,13 @@ import static org.mockito.Mockito.*;
 })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
-@Import(AdminHostApplicationServiceImpl.class)
+@Import({AdminHostApplicationServiceImpl.class, HostApplicationServiceImpl.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class AdminHostApplicationPersistenceTest {
     @Autowired SystemUserRepo users;
     @Autowired HostApplicationRepo applications;
     @Autowired AdminHostApplicationService service;
+    @Autowired HostApplicationService applicantService;
     @Autowired PlatformTransactionManager transactions;
     @MockBean KeycloakSecurityUtil keycloakUtil;
     @MockBean AuthNotificationEventPublisher publisher;
@@ -148,5 +153,35 @@ class AdminHostApplicationPersistenceTest {
         } catch (DuplicateEntryException conflict) {
             return false;
         }
+    }
+
+    @Test
+    void applicantCanBeRejectedResubmitAndBeApprovedWithoutDuplicateUsersOrApplications() {
+        applications.deleteById(applicationId);
+        String email = "applicant@example.test";
+        assertThrows(EntryNotFoundException.class, () -> applicantService.getCurrent(email));
+        var request = new HostApplicationRequestDto("Org", "Community events");
+        var submitted = applicantService.apply(email, request);
+        assertEquals(HostApplicationStatus.PENDING, submitted.status());
+        assertThrows(DuplicateEntryException.class, () -> applicantService.apply(email, request));
+        service.reject(submitted.id(), "admin", "More information");
+        assertEquals("More information", applicantService.getCurrent(email).rejectionReason());
+        verifyNoInteractions(keycloakUtil);
+        assertThrows(DuplicateEntryException.class, () -> service.approve(submitted.id(), "admin"));
+        var resubmitted = applicantService.apply(email, request);
+        assertEquals(submitted.id(), resubmitted.id());
+        assertEquals(HostApplicationStatus.PENDING, resubmitted.status());
+        assertNull(resubmitted.reviewedBy());
+        assertNull(resubmitted.rejectionReason());
+        service.approve(submitted.id(), "admin");
+        assertEquals(HostApplicationStatus.APPROVED, applicantService.getCurrent(email).status());
+        assertThrows(DuplicateEntryException.class, () -> applicantService.apply(email, request));
+        assertThrows(DuplicateEntryException.class, () -> service.approve(submitted.id(), "admin"));
+        assertThrows(DuplicateEntryException.class, () -> service.reject(submitted.id(), "admin", "Reason"));
+        verify(roles).add(List.of(host));
+        verify(publisher).publish(argThat(event -> "HOST_APPLICATION_REJECTED".equals(event.getType())));
+        verify(publisher).publish(argThat(event -> "HOST_APPLICATION_APPROVED".equals(event.getType())));
+        assertEquals(1, applications.count());
+        assertEquals(1, users.count());
     }
 }

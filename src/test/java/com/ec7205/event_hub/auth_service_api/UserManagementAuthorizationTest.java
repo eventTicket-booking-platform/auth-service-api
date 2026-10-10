@@ -3,6 +3,10 @@ package com.ec7205.event_hub.auth_service_api;
 import com.ec7205.event_hub.auth_service_api.api.UserController;
 import com.ec7205.event_hub.auth_service_api.config.*;
 import com.ec7205.event_hub.auth_service_api.service.SystemUserService;
+import com.ec7205.event_hub.auth_service_api.dto.request.SystemUserRequestDto;
+import org.mockito.ArgumentCaptor;
+import org.springframework.http.MediaType;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,5 +60,23 @@ class UserManagementAuthorizationTest {
     private void token(String role) {
         when(decoder.decode(role)).thenReturn(Jwt.withTokenValue(role).header("alg", "none")
                 .subject("subject").claim("realm_access", Map.of("roles", List.of(role))).build());
+    }
+
+    @Test void publicSignupCannotBindRoleOrAdminFlagsToTheRegistrationDto() throws Exception {
+        mvc.perform(post("/user-service/api/v1/users/visitors/signup").contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"firstName":"Applicant","lastName":"User","email":"applicant@example.test",
+                         "password":"test-only-value","role":"host","roles":["admin"],"isAdmin":true,
+                         "userId":"forged","emailVerified":true}
+                        """))
+                .andExpect(status().isCreated());
+        ArgumentCaptor<SystemUserRequestDto> request = ArgumentCaptor.forClass(SystemUserRequestDto.class);
+        verify(users).createUser(request.capture());
+        assertEquals("applicant@example.test", request.getValue().getEmail());
+        assertEquals(Set.of("firstName", "lastName", "email", "password", "contact"),
+                Arrays.stream(SystemUserRequestDto.class.getDeclaredFields()).map(java.lang.reflect.Field::getName)
+                        .filter(name -> !name.startsWith("$")).collect(java.util.stream.Collectors.toSet()));
+        verify(users, never()).initializeHosts(any());
+        verify(users, never()).initializeAdmins(any());
     }
 }

@@ -147,6 +147,29 @@ class SystemUserSeedingTest {
         return realmRole;
     }
 
+    @Test
+    void publicRegistrationAlwaysAssignsOnlyUserAndRequiresEmailVerification() throws Exception {
+        when(keycloakUtil.getKeycloakInstance()).thenReturn(keycloak);
+        when(keycloak.realm(REALM).users().search(EMAIL)).thenReturn(List.of());
+        when(keycloak.realm(REALM).users().create(any())).thenReturn(response);
+        when(response.getStatus()).thenReturn(201);
+        when(response.getLocation()).thenReturn(URI.create("http://keycloak.test/users/new-user"));
+        RoleRepresentation userRole = new RoleRepresentation();
+        userRole.setName("user");
+        when(keycloak.realm(REALM).roles().get("user").toRepresentation()).thenReturn(userRole);
+        when(users.save(any(SystemUser.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(otpGenerator.generateOtp(5)).thenReturn("12345");
+        service.createUser(dto);
+        verify(keycloak.realm(REALM).users().get("new-user").roles().realmLevel()).add(List.of(userRole));
+        verify(keycloak.realm(REALM).roles(), never()).get("host");
+        verify(keycloak.realm(REALM).roles(), never()).get("admin");
+        ArgumentCaptor<UserRepresentation> representation = ArgumentCaptor.forClass(UserRepresentation.class);
+        verify(keycloak.realm(REALM).users()).create(representation.capture());
+        assertFalse(representation.getValue().isEnabled());
+        assertFalse(representation.getValue().isEmailVerified());
+        verify(notifications).publish(argThat(event -> "EMAIL_VERIFICATION_OTP".equals(event.getType())));
+    }
+
     private void initialize(String role) throws Exception {
         if ("host".equals(role)) service.initializeHosts(List.of(dto));
         else service.initializeAdmins(List.of(dto));
