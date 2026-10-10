@@ -61,4 +61,7 @@ public class SystemUser {
 
     @OneToOne(mappedBy = "systemUser",fetch = FetchType.EAGER, cascade = CascadeType.REMOVE)
     private SystemAvatar systemAvatar;
+
+    @OneToOne(mappedBy = "systemUser", fetch = FetchType.LAZY, cascade = CascadeType.REMOVE)
+    private HostApplication hostApplication;
 }

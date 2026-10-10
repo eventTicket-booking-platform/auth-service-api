@@ -78,6 +78,26 @@ Internal integration used from this service:
 
 Roles are enforced with `@PreAuthorize` plus JWT role mapping in `SecurityConfig`.
 
+## Host Applications (Phase 1)
+
+Host applications (Phase 1): verified, active, enabled USER/CUSTOMER accounts
+can `POST /user-service/api/v1/host-applications` with `organizationName`
+(required, trimmed, maximum 200 characters) and optional `reason` (trimmed,
+maximum 2,000 characters). Identity comes only from the validated JWT email.
+HOST/ADMIN accounts are excluded, including accounts that also have a user role.
+
+`GET /user-service/api/v1/host-applications/me` returns the caller's application
+in the standard response envelope, or 404 if none exists. Submission returns
+201 with status `PENDING`; existing PENDING/APPROVED applications return 409.
+A rejected application can be resubmitted using the same row; review metadata
+is cleared and the application timestamp is refreshed.
+
+The auth database owns `host_application`, with a unique `system_user_id`
+foreign key to its own `system_user` table. Submission uses a short user-row
+lock to serialize concurrent requests. The entity is created by the existing
+Hibernate schema-update configuration; no new database is required.
+This phase has no approval/rejection API, Keycloak role assignment or emails.
+
 ## Runtime Dependencies
 
 - Config Server on `8888`
