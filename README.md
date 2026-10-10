@@ -25,7 +25,7 @@ Authentication and user-profile service for Event Hub. This service owns signup,
 - Return current user profile
 - Update current user profile
 - Upload and replace user avatars
-- List users for admin or host flows
+- List users for admin flows
 - Resolve internal user ID by email
 
 ## Non-Functional Requirements
@@ -59,7 +59,7 @@ Authenticated endpoints:
 - `PUT /users/update-user-details`
 - `POST /avatars/user/manage-avatar`
 
-Admin or host endpoints:
+Admin-only endpoints:
 
 - `GET /users/all`
 - `GET /users/resolve-user-id`
@@ -73,8 +73,8 @@ Internal integration used from this service:
 ## Role-Based Access
 
 - `permitAll`: all `POST /users/visitors/**` endpoints
-- `user`, `admin`, `host`: profile lookup, profile update, avatar upload
-- `admin`, `host`: user listing and user ID resolution
+- `user` / `customer`, `admin`, `host`: profile lookup, profile update, avatar upload
+- `admin` only: user listing and user ID resolution
 
 Roles are enforced with `@PreAuthorize` plus JWT role mapping in `SecurityConfig`.
 
