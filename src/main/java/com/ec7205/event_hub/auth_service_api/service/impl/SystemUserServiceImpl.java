@@ -225,15 +225,23 @@ public class SystemUserServiceImpl implements SystemUserService {
         return user;
     }
 
-    // --- Method to initially add users with role "Host" ---
     @Override
     public void initializeHosts(List<SystemUserRequestDto> users) throws IOException {
-        logger.info("Starting host seed initialization for {} user(s).", users.size());
+        initializeUsersWithRole(users, "host");
+    }
+
+    @Override
+    public void initializeAdmins(List<SystemUserRequestDto> users) throws IOException {
+        initializeUsersWithRole(users, "admin");
+    }
+
+    private void initializeUsersWithRole(List<SystemUserRequestDto> users, String role) throws IOException {
+        logger.info("Starting {} seed initialization for {} user(s).", role, users.size());
         for (SystemUserRequestDto dto : users) {
             // If already exists in local DB → skip
             Optional<SystemUser> selectedUser = systemUserRepo.findByEmail(dto.getEmail());
             if (selectedUser.isPresent()) {
-                logger.info("Skipping host seed for {} because it already exists in local DB.", dto.getEmail());
+                logger.info("Skipping {} seed for {} because it already exists in local DB.", role, dto.getEmail());
                 continue;
             }
 
@@ -251,7 +259,7 @@ public class SystemUserServiceImpl implements SystemUserService {
                 Optional<SystemUser> selectedSystemUserFromAuthService =
                         systemUserRepo.findByEmail(dto.getEmail());
                 if (selectedSystemUserFromAuthService.isEmpty()) {
-                    logger.info("Deleting stale Keycloak-only host user before reseeding: {}", dto.getEmail());
+                    logger.info("Deleting stale Keycloak-only {} user before reseeding: {}", role, dto.getEmail());
                     keycloak.realm(realm).users().delete(existingUser.getId());
                 } else {
                     throw new DuplicateEntryException("Email already exists");
@@ -274,8 +282,8 @@ public class SystemUserServiceImpl implements SystemUserService {
             Response response = keycloak.realm(realm).users().create(userRepresentation);
 
             if (response.getStatus() == Response.Status.CREATED.getStatusCode()) {
-                // Assign "host" role
-                RoleRepresentation userRole = keycloak.realm(realm).roles().get("host").toRepresentation();
+                // Assign the requested realm role
+                RoleRepresentation userRole = keycloak.realm(realm).roles().get(role).toRepresentation();
                 userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
                 keycloak.realm(realm).users().get(userId).roles().realmLevel().add(Arrays.asList(userRole));
 
@@ -299,22 +307,22 @@ public class SystemUserServiceImpl implements SystemUserService {
                         .build();
 
                 SystemUser savedUser = systemUserRepo.save(sUser);
-                logger.info("Seeded host user {} with local id {} and Keycloak id {}.", dto.getEmail(), savedUser.getUserId(), savedUser.getKeycloakId());
+                logger.info("Seeded {} user {} with local id {} and Keycloak id {}.", role, dto.getEmail(), savedUser.getUserId(), savedUser.getKeycloakId());
 
-                if (publishSeedHostNotifications) {
+                if ("host".equals(role) && publishSeedHostNotifications) {
                     publishAuthNotification("HOST_PASSWORD", HostPasswordNotificationRequest.builder()
                             .email(dto.getEmail())
                             .firstName(dto.getFirstName())
                             .password(dto.getPassword())
                             .build());
-                } else {
+                } else if ("host".equals(role)) {
                     logger.info("Skipped host seed password notification for {} because seed notification publishing is disabled.", dto.getEmail());
                 }
             } else {
-                logger.warn("Failed to seed host user {}. Keycloak create response status: {}", dto.getEmail(), response.getStatus());
+                logger.warn("Failed to seed {} user {}. Keycloak create response status: {}", role, dto.getEmail(), response.getStatus());
             }
         }
-        logger.info("Host seed initialization finished.");
+        logger.info("{} seed initialization finished.", "host".equals(role) ? "Host" : "Admin");
     }
 
     @Override

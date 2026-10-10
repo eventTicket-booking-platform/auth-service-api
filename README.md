@@ -115,6 +115,18 @@ Roles are enforced with `@PreAuthorize` plus JWT role mapping in `SecurityConfig
 
 Default port: `9092`
 
+With the `local` profile, startup seeds the two existing HOST accounts and one
+application ADMIN: `eventhub.admin@local.test` / `amiru1234` (Amiru Horadagoda,
+contact `0717244872`). This is separate from the `KEYCLOAK_CONFIG_NAME` management
+account. The realm must already contain the `host` and `admin` roles.
+
+Existing local users are skipped; their passwords and roles are not reset.
+HOST seed password notifications remain controlled by
+`eventhub.auth.seed-hosts.publish-notifications` (default `false`); ADMIN seed
+passwords are never published through that flow. Seeding requires `local` and
+is disabled whenever `prod` is active. Deployments must explicitly set
+`SPRING_PROFILES_ACTIVE=prod`; the existing development default is `local`.
+
 ## Build
 
 ```powershell

@@ -15,6 +15,7 @@ import java.util.List;
 public interface SystemUserService {
     public void createUser(SystemUserRequestDto dto) throws IOException;
     public void initializeHosts(List<SystemUserRequestDto> users) throws IOException;
+    public void initializeAdmins(List<SystemUserRequestDto> users) throws IOException;
     public void resend(String email,String type) throws IOException;
     public void forgetPasswordSendVerificationCode(String email );
     public boolean verifyReset(String otp, String email);
