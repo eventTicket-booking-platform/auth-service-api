@@ -96,7 +96,42 @@ The auth database owns `host_application`, with a unique `system_user_id`
 foreign key to its own `system_user` table. Submission uses a short user-row
 lock to serialize concurrent requests. The entity is created by the existing
 Hibernate schema-update configuration; no new database is required.
-This phase has no approval/rejection API, Keycloak role assignment or emails.
+Submission does not assign a Keycloak role or send emails.
+
+## Host Application Admin Review (Phase 2)
+
+These endpoints require the existing `admin` JWT authority. HOST, USER and
+CUSTOMER callers receive 403; unauthenticated callers receive 401.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/user-service/api/v1/host-applications/admin?status=PENDING&page=0&size=20` | Paginated applications; status filter is optional |
+| PATCH | `/user-service/api/v1/host-applications/admin/{applicationId}/approve` | Approve a pending application |
+| PATCH | `/user-service/api/v1/host-applications/admin/{applicationId}/reject` | Reject with `{"reason":"More information required"}` |
+
+Responses use the existing envelope. Lists return `dataList` and `dataCount`,
+including applicant contact and review information without credentials.
+Review responses contain the application and applicant details. Rejection
+requires a nonblank reason of at most 2,000 characters. `reviewedBy` comes
+from the authenticated admin's JWT subject, never the request body.
+
+Only `PENDING -> APPROVED` and `PENDING -> REJECTED` reviews are allowed.
+Invalid/repeated transitions return 409; unknown applications return 404.
+A database row lock serializes competing reviews. A rejected applicant must
+resubmit through Phase 1 before another review.
+
+Approval verifies the existing Keycloak user and adds only the realm `host`
+role if absent, preserving existing roles and users. HOST authority appears
+on subsequent login/token issuance; already-issued JWTs are unchanged.
+Rejection makes no Keycloak role changes. No review emails are implemented.
+
+Keycloak and MySQL are separate transactions. A newly granted HOST role is
+removed best-effort if the database transaction rolls back, including after
+flush. Pre-existing HOST roles are never removed by compensation. Cleanup
+failure or an unknown database completion is logged for reconciliation.
+A crash, ambiguous Keycloak response, failed cleanup, or concurrent external
+role changes can still leave inconsistent state requiring manual review;
+approval is not globally atomic.
 
 ## Runtime Dependencies
 
